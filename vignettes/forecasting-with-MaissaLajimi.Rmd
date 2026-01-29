@@ -1,0 +1,322 @@
+---
+title: "Getting Started with WNN Forecasting"
+author: "Maissa Lajimi"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting Started with WNN Forecasting}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+# Introduction
+
+The **MaissaLajimi** package implements Weighted Nearest Neighbors (WNN) forecasting for time series data. This vignette demonstrates how to:
+
+1. Load and prepare electricity consumption data
+2. Forecast with the WNN algorithm
+3. Evaluate forecast performance
+4. Compare WNN with other methods (e.g., SVM)
+
+---
+
+# Installation
+
+```{r install, eval=FALSE}
+# Install from local source
+devtools::install_local("path/to/MaissaLajimi")
+
+# Or if on GitHub
+devtools::install_github("yourusername/MaissaLajimi")
+```
+
+---
+
+# Quick Start: 3-Day Forecast
+
+## Step 1: Load the Package and Data
+
+```{r load-data}
+library(MaissaLajimi)
+
+# Load the electricity consumption dataset
+data("ElecTrain")
+
+# Extract power consumption and temperature
+df_power <- na.omit(ElecTrain$power)
+df_temp  <- na.omit(ElecTrain$temp)
+
+# Check data dimensions
+cat("Total observations:", length(df_power), "\n")
+cat("Total days:", length(df_power) / 96, "\n")
+cat("Frequency: 15-minute intervals (96 per day)\n")
+```
+
+## Step 2: Split Data into Training and Test Sets
+
+We'll use the last 3 days (February 16-18) for testing:
+
+```{r split-data}
+n <- length(df_power)
+h_test <- 3 * 96  # Last 3 days
+
+# Training data (Jan 1 - Feb 15)
+train_y <- df_power[1:(n - h_test)]
+train_X <- matrix(df_temp[1:(n - h_test)], ncol = 1)
+
+# Test data (Feb 16-18)
+test_y <- df_power[(n - h_test + 1):n]
+test_X <- matrix(df_temp[(n - h_test + 1):n], ncol = 1)
+
+cat("Training samples:", length(train_y), "\n")
+cat("Test samples:", length(test_y), "\n")
+```
+
+## Step 3: Train WNN Model and Forecast
+
+```{r forecast-3days}
+# Generate forecast for last 3 days
+result <- wnn(
+  y          = train_y,           # Historical power consumption
+  X          = train_X,           # Historical temperature
+  m          = 96,                # Window size (1 day = 96 intervals)
+  k          = 30,                # Number of neighbors
+  h          = length(test_y),    # Forecast horizon (3 days)
+  X_future   = test_X,            # Future temperature
+  scale      = TRUE,              # Enable standardization
+  temp_lags  = 1,                 # Use only current temperature
+  return_all = TRUE,              # Return detailed diagnostics
+  plot       = TRUE,              # Show forecast plot
+  test_y     = test_y             # For performance metrics
+)
+
+# Extract forecasts
+forecasts <- result$forecasts
+```
+
+## Step 4: Evaluate Performance
+
+```{r evaluate}
+# The model automatically prints metrics when test_y is provided
+# You can also calculate them manually:
+library(Metrics)
+
+rmse_value <- rmse(test_y, forecasts)
+mae_value  <- mae(test_y, forecasts)
+
+cat("\n=== VALIDATION RESULTS ===\n")
+cat("RMSE:", round(rmse_value, 2), "kW\n")
+cat("MAE:", round(mae_value, 2), "kW\n")
+cat("Relative Error:", round(100 * mae_value / mean(test_y), 1), "%\n")
+```
+
+---
+
+# Comparing WNN vs SVM
+
+In this example, we forecast February 19 (which is NOT in our dataset) and compare WNN predictions with an external SVM model.
+
+## Step 1: Load Pre-computed SVM Forecast
+
+```{r load-svm}
+# Load SVM forecast for Feb 19
+data("MaissaLajimi")
+svm_forecast <- as.numeric(MaissaLajimi[[1]])
+
+cat("SVM forecast loaded:", length(svm_forecast), "observations\n")
+```
+
+## Step 2: Generate WNN Forecast for Feb 19
+
+```{r forecast-feb19}
+# Use ALL available data to forecast Feb 19
+h_steps <- 96  # One full day
+
+# Future temperature for Feb 19 (available in dataset)
+X_future_feb19 <- matrix(df_temp[(n + 1):(n + h_steps)], ncol = 1)
+
+# Generate WNN forecast
+feb19_wnn_result <- wnn(
+  y          = df_power[1:n],              # All historical data
+  X          = matrix(df_temp[1:n], ncol = 1),
+  m          = 96,
+  k          = 30,
+  h          = h_steps,
+  X_future   = X_future_feb19,
+  scale      = TRUE,
+  temp_lags  = 1,
+  return_all = TRUE,
+  plot       = FALSE                      
+)
+
+wnn_forecast_feb19 <- feb19_wnn_result$forecasts
+```
+
+## Step 3: Compare WNN vs SVM
+
+```{r compare-methods}
+# Compare both forecasts
+comparison <- compare_forecasts(
+  external_forecast = svm_forecast,
+  wnn_forecast      = wnn_forecast_feb19,
+  y                 = df_power[1:n],      
+  method_name       = "SVM"
+)
+```
+
+## Step 4: Visualize the Comparison
+
+```{r plot-comparison, fig.width=8, fig.height=6}
+# Plot 1: Time series with both forecasts
+print(comparison$plots$comparison)
+```
+
+```{r plot-difference, fig.width=8, fig.height=4}
+# Plot 2: Difference between forecasts
+print(comparison$plots$difference)
+```
+
+## Interpretation
+
+- **Correlation > 0.99**: Strong agreement between WNN and SVM
+- **Pattern Correlation > 0.8**: Both methods capture daily consumption patterns
+- **Mean Difference < 6 kW**: Very small disagreement (~2.5% of average power)
+
+**Conclusion**: Since both independent methods (WNN and SVM) produce similar forecasts with strong agreement, we have confidence in the February 19 predictions despite lacking ground truth.
+
+---
+
+# Understanding WNN Parameters
+
+## Key Parameters
+
+| Parameter | Description | Typical Values | Impact |
+|-----------|-------------|----------------|--------|
+| `m` | Embedding window size | 96 (1 day) | Larger = more history, may overfit |
+| `k` | Number of neighbors | 10-50 | Larger = smoother, less responsive |
+| `temp_lags` | Temperature history | 1-5 | 1 = current only (usually best) |
+| `scale` | Standardization | TRUE/FALSE | TRUE for mixed-scale data |
+
+## Parameter Tuning Example
+
+```{r tune-params, eval=FALSE}
+# Test different configurations
+param_grid <- expand.grid(
+  m = c(96, 144, 192),
+  k = c(20, 30, 50),
+  temp_lags = c(1, 3, 5)
+)
+
+results <- data.frame()
+
+for (i in 1:nrow(param_grid)) {
+  result <- wnn(
+    y = train_y,
+    X = train_X,
+    m = param_grid$m[i],
+    k = param_grid$k[i],
+    h = length(test_y),
+    X_future = test_X,
+    temp_lags = param_grid$temp_lags[i],
+    plot = FALSE
+  )
+  
+  rmse_val <- rmse(test_y, result$forecasts)
+  
+  results <- rbind(results, data.frame(
+    m = param_grid$m[i],
+    k = param_grid$k[i],
+    temp_lags = param_grid$temp_lags[i],
+    RMSE = rmse_val
+  ))
+}
+
+# Find best parameters
+best <- results[which.min(results$RMSE), ]
+print(best)
+```
+
+---
+
+# Tips and Best Practices
+
+## 1. Choose Window Size (`m`)
+
+- **Daily patterns**: Use `m = 96` (15-min data) or `m = 24` (hourly data)
+- **Weekly patterns**: Use `m = 96 * 7 = 672`
+- **Rule of thumb**: Match `m` to the dominant cycle in your data
+
+## 2. Select Number of Neighbors (`k`)
+
+- **Small k (5-10)**: More responsive, captures local patterns
+- **Large k (30-50)**: Smoother forecasts, more stable
+- **Optimal k**: Test on validation set (usually 20-40 for electricity data)
+
+## 3. Temperature Lags
+
+- **`temp_lags = 1`**: Use only current temperature (recommended)
+- **`temp_lags = 3-5`**: Include recent temperature trend
+- **Avoid large values**: Old temperature data adds noise
+
+## 4. Data Requirements
+
+- **Minimum**: At least `m + k` observations
+- **Recommended**: Several complete cycles (e.g., 30+ days for daily patterns)
+- **Quality**: Handle missing values before forecasting
+
+---
+
+# Troubleshooting
+
+## Common Issues
+
+### Issue 1: Poor Performance
+
+**Symptoms**: High RMSE, unrealistic forecasts
+
+**Solutions**:
+- Increase `k` (try 30-50)
+- Adjust `m` to match data cycle
+- Enable scaling: `scale = TRUE`
+- Check for missing/invalid data
+
+### Issue 2: Slow Performance
+
+**Symptoms**: Long computation time
+
+**Solutions**:
+- Reduce `k` if very large
+- Use smaller `m` if not critical
+- Reduce forecast horizon `h`
+
+### Issue 3: Error "Insufficient data"
+
+**Symptoms**: `Error: need at least m + 1 observations`
+
+**Solutions**:
+- Reduce `m` (window size)
+- Ensure you have enough historical data
+- Check for NA values: `sum(is.na(y))`
+
+---
+
+# References
+
+- Talavera-Llames et al. (2016). "A Nearest Neighbours-Based Algorithm for Big Time Series Data Forecasting." HAIS 2016.
+- Package documentation: `help(package = "MaissaLajimi")`
+
+---
+
+# Session Info
+
+```{r session-info}
+sessionInfo()
+```

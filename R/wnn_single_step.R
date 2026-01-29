@@ -22,6 +22,7 @@
 #'   \item n_exact_matches: Number of exact matches found
 #' }
 #'
+#' @importFrom FNN get.knnx
 #' @export
 #' @examples
 #' y <- sin(1:100 / 10) + rnorm(100, 0, 0.1)
@@ -31,9 +32,7 @@ wnn_single_step <- function(y, X = NULL, m, k, X_current = NULL,
                             scaling_params = NULL,
                             distance = "euclidean",
                             weight_func = "inverse",
-                            temp_lags = 1) {  # ← NEW PARAMETER
-
-  library(FNN)
+                            temp_lags = 1) {
 
   # Validation
   n <- length(y)
@@ -64,10 +63,9 @@ wnn_single_step <- function(y, X = NULL, m, k, X_current = NULL,
   # Current embedding
   current_y <- y[n:(n - m + 1)]
 
-  # Add exogenous variables if provided (IMPROVED VERSION)
+  # Add exogenous variables if provided
   if (!is.null(X)) {
     n_exog <- ncol(X)
-    # ← CHANGE: Use temp_lags instead of m for temperature
     embeddings_X <- matrix(0, nrow = n_embeddings, ncol = temp_lags * n_exog)
 
     for (i in 1:n_embeddings) {
@@ -75,27 +73,23 @@ wnn_single_step <- function(y, X = NULL, m, k, X_current = NULL,
       for (j in 1:n_exog) {
         start_col <- (j - 1) * temp_lags + 1
         end_col <- j * temp_lags
-        # ← CHANGE: Only take temp_lags most recent temperature values
         embeddings_X[i, start_col:end_col] <- X[t:(t - temp_lags + 1), j]
       }
     }
 
-    # Current X embedding (IMPROVED VERSION)
+    # Current X embedding
     if (!is.null(X_current)) {
       if (is.vector(X_current)) X_current <- matrix(X_current, ncol = 1)
 
-      # Build current_X to match embeddings_X structure
       n_exog <- ncol(X_current)
       current_X <- numeric(temp_lags * n_exog)
 
       for (j in 1:n_exog) {
         start_idx <- (j - 1) * temp_lags + 1
         end_idx <- j * temp_lags
-        # ← CHANGE: Take only temp_lags most recent values
         current_X[start_idx:end_idx] <- X_current[1:temp_lags, j]
       }
     } else {
-      # ← CHANGE: Use temp_lags instead of m
       current_X_mat <- X[n:(n - temp_lags + 1), , drop = FALSE]
       n_exog <- ncol(X)
       current_X <- numeric(temp_lags * n_exog)
@@ -141,10 +135,10 @@ wnn_single_step <- function(y, X = NULL, m, k, X_current = NULL,
   }
 
   # ------------------------------------------------------------
-  # STEP 2: Find k nearest neighbors
+  # STEP 2: Find k nearest neighbors - USING FNN:: PREFIX
   # ------------------------------------------------------------
 
-  knn_result <- get.knnx(
+  knn_result <- FNN::get.knnx(
     data = embeddings_all,
     query = matrix(current_all, nrow = 1),
     k = min(k, nrow(embeddings_all))
@@ -155,10 +149,10 @@ wnn_single_step <- function(y, X = NULL, m, k, X_current = NULL,
   neighbor_next_values <- next_values[neighbor_indices]
 
   # ------------------------------------------------------------
-  # STEP 3: Compute weights with zero-distance protection
+  # STEP 3: Compute weights
   # ------------------------------------------------------------
 
-  epsilon <- 1e-10  # Protection against division by zero
+  epsilon <- 1e-10
 
   if (weight_func == "inverse") {
     raw_weights <- 1 / (neighbor_distances + epsilon)
@@ -175,11 +169,8 @@ wnn_single_step <- function(y, X = NULL, m, k, X_current = NULL,
   # ------------------------------------------------------------
 
   forecast <- sum(normalized_weights * neighbor_next_values)
-
-  # Check for exact matches
   n_exact_matches <- sum(neighbor_distances < 1e-8)
 
-  # Return results
   list(
     forecast = forecast,
     neighbors = neighbor_indices,

@@ -2,21 +2,24 @@
 % Please edit documentation in R/compare_forecasts.R
 \name{compare_forecasts}
 \alias{compare_forecasts}
-\title{Compare Two Forecasts Visually and Summarize}
+\title{Compare WNN Forecast with External Forecast}
 \usage{
-compare_forecasts(forecast1, forecast2, labels = c("Model 1", "Model 2"))
+compare_forecasts(
+  external_forecast,
+  wnn_forecast,
+  y = NULL,
+  method_name = "External"
+)
 }
 \arguments{
-\item{forecast1}{Numeric vector. Forecast from first model (e.g., Part 1)}
+\item{external_forecast}{Numeric vector. The benchmark forecast (e.g., SVM).}
 
-\item{forecast2}{Numeric vector. Forecast from second model (e.g., WNN)}
+\item{wnn_forecast}{Numeric vector. Pre-calculated WNN results.}
 
-\item{labels}{Character vector of length 2. Names for the forecasts}
-}
-\value{
-NULL (produces plots and prints summaries)
+\item{y}{Numeric vector. Historical power data (used for context/stats).}
+
+\item{method_name}{Character. Label for the external method (e.g., "SVM").}
 }
 \description{
-Since actual values are not available, this function compares two forecasts
-by plotting them and their differences, and printing simple summary stats.
+Compare WNN Forecast with External Forecast
 }

@@ -16,7 +16,8 @@ wnn(
   weight_func = "inverse",
   return_all = FALSE,
   plot = TRUE,
-  temp_lags = 1
+  temp_lags = 1,
+  test_y = NULL
 )
 }
 \arguments{
@@ -48,6 +49,8 @@ Default = "inverse"}
 \item{plot}{Logical. Should a plot of historical and forecasted values be shown? Default = TRUE}
 
 \item{temp_lags}{Integer. Number of temperature lags to use. Default = 1 (current only)}
+
+\item{test_y}{Optional numeric vector of actual values for the forecast period to calculate metrics.}
 }
 \value{
 If h = 1: List with forecast value and diagnostics

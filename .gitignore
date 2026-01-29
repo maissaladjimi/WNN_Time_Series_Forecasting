@@ -3,3 +3,6 @@
 .RData
 .Ruserdata
 man/hello.Rd
+inst/doc
+/doc/
+/Meta/

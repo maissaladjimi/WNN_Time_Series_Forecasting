@@ -1,41 +1,113 @@
-#' Compare Two Forecasts Visually and Summarize
+#' Compare WNN Forecast with External Forecast
 #'
-#' Since actual values are not available, this function compares two forecasts
-#' by plotting them and their differences, and printing simple summary stats.
+#' @param external_forecast Numeric vector. The benchmark forecast (e.g., SVM).
+#' @param wnn_forecast Numeric vector. Pre-calculated WNN results.
+#' @param y Numeric vector. Historical power data (used for context/stats).
+#' @param method_name Character. Label for the external method (e.g., "SVM").
 #'
-#' @param forecast1 Numeric vector. Forecast from first model (e.g., Part 1)
-#' @param forecast2 Numeric vector. Forecast from second model (e.g., WNN)
-#' @param labels Character vector of length 2. Names for the forecasts
-#' @return NULL (produces plots and prints summaries)
+#' @import ggplot2
+#' @importFrom utils tail
+#' @importFrom stats sd cor
 #' @export
-compare_forecasts <- function(forecast1, forecast2, labels = c("Model 1", "Model 2")) {
+compare_forecasts <- function(external_forecast,
+                              wnn_forecast,
+                              y = NULL,
+                              method_name = "External") {
 
-  # Check lengths
-  n <- length(forecast1)
-  if(length(forecast2) != n) stop("Both forecasts must have the same length")
+  # 1. Validation & Alignment
+  if (missing(wnn_forecast) || is.null(wnn_forecast)) stop("wnn_forecast is required.")
 
-  # 1️⃣ Plot forecasts together
-  plot(1:n, forecast1, type = "l", col = "red", lwd = 2,
-       ylim = range(c(forecast1, forecast2)),
-       xlab = "Step", ylab = "Forecast",
-       main = "Forecast Comparison")
-  lines(1:n, forecast2, col = "blue", lwd = 2)
-  legend("topright", legend = labels, col = c("red","blue"), lwd = 2)
+  # Use utils::tail
+  ext_vec <- as.numeric(utils::tail(external_forecast, 96))
+  wnn_vec <- as.numeric(utils::tail(wnn_forecast, 96))
 
-  # 2️⃣ Plot forecast differences
-  diff_forecast <- forecast2 - forecast1
-  plot(1:n, diff_forecast, type = "l", col = "purple", lwd = 2,
-       xlab = "Step", ylab = "Difference",
-       main = paste("Difference:", labels[2], "-", labels[1]))
-  abline(h = 0, lty = 2, col = "black")
+  # 2. Statistics & Patterns
+  if (!is.null(y)) {
+    n_days <- floor(length(y) / 96)
+    y_matrix <- matrix(y[1:(n_days * 96)], nrow = 96)
+    typical_pattern <- base::rowMeans(y_matrix)
+    last_day <- utils::tail(y, 96)
+  } else {
+    typical_pattern <- last_day <- rep(NA, 96)
+  }
 
-  # 3️⃣ Print basic summary stats
-  cat("Summary statistics:\n")
-  cat(sprintf("%s: mean=%.2f, sd=%.2f, min=%.2f, max=%.2f\n",
-              labels[1], mean(forecast1), sd(forecast1), min(forecast1), max(forecast1)))
-  cat(sprintf("%s: mean=%.2f, sd=%.2f, min=%.2f, max=%.2f\n",
-              labels[2], mean(forecast2), sd(forecast2), min(forecast2), max(forecast2)))
+  # Use stats::sd and base::mean
+  get_stats <- function(v) {
+    c(Mean = mean(v, na.rm=TRUE),
+      SD = stats::sd(v, na.rm=TRUE),
+      Min = min(v, na.rm=TRUE),
+      Max = max(v, na.rm=TRUE),
+      CV = stats::sd(v, na.rm=TRUE)/mean(v, na.rm=TRUE))
+  }
 
-  cat(sprintf("Difference (Model 2 - Model 1): mean=%.2f, sd=%.2f, min=%.2f, max=%.2f\n",
-              mean(diff_forecast), sd(diff_forecast), min(diff_forecast), max(diff_forecast)))
+  summary_table <- data.frame(
+    Metric = c("Mean (kW)", "Std Dev", "Min", "Max", "Coeff Var", "Pattern Cor"),
+    Historical = c(round(get_stats(last_day), 3), 1.000),
+    WNN        = c(round(get_stats(wnn_vec), 3), round(stats::cor(wnn_vec, typical_pattern), 3)),
+    External   = c(round(get_stats(ext_vec), 3), round(stats::cor(ext_vec, typical_pattern), 3))
+  )
+  colnames(summary_table)[4] <- method_name
+
+  # 3. Console Report
+  cat("\n================================================\n")
+  cat(sprintf("  COMPARISON SUMMARY: WNN vs %s\n", toupper(method_name)))
+  cat("------------------------------------------------\n")
+  print(summary_table, row.names = FALSE)
+  cat("================================================\n\n")
+
+  # 4. VISUALIZATIONS
+  plots <- list()
+  if (requireNamespace("ggplot2", quietly = TRUE) && !is.null(y)) {
+    n_hist <- length(y)
+    n_context <- min(4 * 96, n_hist) # Show 4 days of context
+
+    hist_days <- ((n_hist - n_context + 1):n_hist)/96
+    forecast_days <- ((n_hist + 1):(n_hist + 96))/96
+
+    plot_df <- data.frame(
+      Day = c(hist_days, rep(forecast_days, 2)),
+      Power = c(utils::tail(y, n_context), wnn_vec, ext_vec),
+      Type = factor(c(rep("Historical", n_context), rep("WNN", 96), rep(method_name, 96)),
+                    levels = c("Historical", "WNN", method_name))
+    )
+
+    my_colors <- c("Historical" = "black", "WNN" = "forestgreen")
+    my_colors[method_name] <- "red"
+
+    # --- Plot A: Comparison ---
+    plots$comparison <- ggplot2::ggplot(plot_df, ggplot2::aes(x = Day, y = Power, color = Type)) +
+      ggplot2::geom_line(ggplot2::aes(linetype = Type), linewidth = 0.8) +
+      ggplot2::scale_color_manual(values = my_colors) +
+      ggplot2::geom_vline(xintercept = n_hist/96, linetype = "dotted") +
+      ggplot2::labs(title = paste("Forecast Comparison:", method_name, "vs WNN"),
+                    y = "Power (kW)", x = "Day") +
+      ggplot2::theme_minimal()
+
+    # --- Plot B: Residuals ---
+    diffs <- wnn_vec - ext_vec
+
+    res_df <- data.frame(
+      Hour = (1:96 - 1) * 0.25,
+      Difference = diffs
+    )
+
+    plots$difference <- ggplot2::ggplot(res_df, ggplot2::aes(x = Hour, y = Difference)) +
+      ggplot2::geom_line(color = "purple", linewidth = 0.8) +
+      ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+      ggplot2::scale_x_continuous(
+        breaks = seq(0, 24, by = 3),
+        limits = c(0, 24),
+        labels = function(x) paste0(x, ":00")
+      ) +
+      ggplot2::labs(
+        title = paste("Residuals (WNN -", method_name, ")"),
+        subtitle = "Positive: WNN higher | Negative: External higher",
+        x = "Time of Day (Hours)",
+        y = "Difference (kW)"
+      ) +
+      ggplot2::theme_minimal() +
+      ggplot2::theme(panel.grid.minor.x = ggplot2::element_blank())
+  }
+
+  return(list(summary_table = summary_table, plots = plots))
 }
