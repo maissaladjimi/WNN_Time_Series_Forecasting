@@ -109,7 +109,7 @@ result <- wnn(
 #>    MAE:   16.80
 ```
 
-### 📊 Compare WNN vs SVM 19 February Forecasts
+### 📊 WNN vs. SVM: February 19 Forecast
 A key feature of this package is the ability to compare the WNN model's accuracy against other algorithms like Support Vector Machines (SVM).
 
 **Load Pre-computed SVM Forecast**
