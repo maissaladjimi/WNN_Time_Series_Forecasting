@@ -10,13 +10,13 @@ You can install the package using one of the two methods below.
 If you have `devtools` installed, you can pull the package directly from this repository:
 
 ```r
-# 1. Install devtools if you don't have it
+# 1. Install devtools 
 if (!require("devtools")) install.packages("devtools")
 
-# 2. Install from your specific repository
+# 2. Install repository
 devtools::install_github("maissaladjimi/WNN_Time_Series_Forecasting")
 
-# 3. Load the library (The package name is MaissaLajimi)
+# 3. Load the library
 library(MaissaLajimi)
 ```
 
